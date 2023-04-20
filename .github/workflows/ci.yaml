@@ -1,6 +1,6 @@
-name: Tests
+name: CI
 on:
-  workflow_call:
+  push:
 
 jobs:
   lint:
@@ -14,7 +14,18 @@ jobs:
       - name: Run linters
         run: tox -e lint
 
-  unit-test:
+  static-analysis:
+    name: Static analysis
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+      - name: Install tox
+        run: python3 -m pip install tox
+      - name: Run tests using tox
+        run: tox -e static
+
+  unit-tests:
     name: Unit tests
     runs-on: ubuntu-latest
     steps:
@@ -25,26 +36,22 @@ jobs:
       - name: Run tests
         run: tox -e unit
 
-  integration-test-microk8s:
-    name: Integration tests (microk8s)
-    needs:
-      - lint
-      - unit-test
+  charmhub-upload:
+    name: Charmhub upload lib
     runs-on: ubuntu-latest
+    if: ${{ github.ref_name == 'main' }}
+    needs: unit-tests
     steps:
       - name: Checkout
         uses: actions/checkout@v3
-      - name: Setup operator environment
-        uses: charmed-kubernetes/actions-operator@main
+      - uses: canonical/charming-actions/upload-charm@2.2.5
         with:
-          provider: microk8s
-      - name: Run integration tests
-        # set a predictable model name so it can be consumed by charm-logdump-action
-        run: tox -e integration -- --model testing
-      - name: Dump logs
-        uses: canonical/charm-logdump-action@main
-        if: failure()
-        with:
-          # TEMPLATE-TODO: Replace the application name
-          app: operator-template
-          model: testing
+          credentials: "${{ secrets.CHARMCRAFT_AUTH }}"
+          github-token: "${{ secrets.GITHUB_TOKEN }}"
+          channel: "edge"
+          upload-image: "false"
+      - name: Publish libs
+        env:
+          CHARMCRAFT_AUTH: "${{ secrets.CHARMCRAFT_AUTH }}"
+        run: |
+          charmcraft publish-lib charms.charmed_5g_upf_interface.v0.upf
